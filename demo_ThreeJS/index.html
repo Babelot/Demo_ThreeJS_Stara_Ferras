@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+<script src='vendor/three.js/build/three.min.js'></script>
+<script src='vendor/three.js/examples/js/controls/OrbitControls.js'></script>
+<script src='vendor/cannon.js/cannon.js'></script>
+<script src='vendor/three.js/threex.dynamictexture.js'></script>
+<!--Add 3d model-->
+<script src ='vendor/three.js/ColladaLoader.js' ></script>
+
+<script id="fragmentShaderMinimal" type="x-shader/x-fragment">
+void main( void ) {
+	gl_FragColor = vec4( 0, 1, 1, 1 );
+}
+</script>
+
+
+
+<script id="fragmentShader" type="x-shader/x-fragment">
+uniform float time;
+varying vec2 vUv;
+void main( void ) {
+	vec2 position = -1.0 + 2.0 * vUv;
+	float red   = abs( sin( position.x * position.y + time / 5.0 ) );
+	float green = abs( sin( position.x * position.y + time / 4.0 ) );
+	float blue  = abs( sin( position.x * position.y + time / 3.0 ) );
+	gl_FragColor = vec4( red, green, blue, 1.0 );
+}
+</script>
+
+
+<script id="vertexShader" type="x-shader/x-vertex">
+	varying vec2 vUv;
+	void main(){
+		vUv = uv;
+		vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+		gl_Position = projectionMatrix * mvPosition;
+	}
+</script>
+
+<body style='margin: 0px; overflow: hidden; text-align:center;'>
+<audio autoplay loop>
+  <source src="audio/music.ogg" type="audio/ogg">
+  <source src="audio/music.mp3" type="audio/mpeg">
+</audio>
+<script>
+
+	var stattrakValue = 10;
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		Init
+	//////////////////////////////////////////////////////////////////////////////////
+
+	// init renderer
+	var renderer	= new THREE.WebGLRenderer({
+		antialias	: true
+	});
+	renderer.setClearColor(new THREE.Color('lightgrey'), 1);
+	renderer.setSize( window.innerWidth, window.innerHeight );
+	document.body.appendChild( renderer.domElement );
+	//enable shadowcasting
+	renderer.shadowMapEnabled = true;
+
+	var onRenderFcts= [];
+
+	// init scene and camera
+	var scene	= new THREE.Scene();
+	var camera	= new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.01, 1000);
+	camera.position.z = 100;
+
+	//Init thecannon physic world
+	var world = new CANNON.World();
+	world.gravity.set(0,-100,0);
+	world.solver.tolerance = 0.001;
+	world.broadphase = new CANNON.NaiveBroadphase();
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		add some objects in the scene
+	//////////////////////////////////////////////////////////////////////////////////
+
+	var uniforms	= {
+		time	: { type: "f", value: 1.0 },
+	}
+
+	//add a directionnal light and enable shadow casting
+	var light = new THREE.DirectionalLight();
+	scene.add(light);
+	light.castShadow = true;
+	light.position.z = 100;
+	light.shadowCameraRight     =  200;
+	light.shadowCameraLeft     = -200;
+	light.shadowCameraTop      =  200;
+	light.shadowCameraBottom   = -200;
+	light.shadowCameraNear   = 10;
+	light.shadowCameraFar   = 500;
+	light.shadowMapWidth = 1024;
+	light.shadowMapHeight = 1024;
+
+	var plane = new THREE.Mesh(new THREE.PlaneGeometry(600, 400), new THREE.MeshBasicMaterial({
+	    map: THREE.ImageUtils.loadTexture('textures/background.jpg')
+  	}));
+    plane.rotation.x = 0;
+    plane.position.z = -100;
+    plane.receiveShadow = true;
+    scene.add(plane);
+
+    var physicShower    = new THREE.Mesh(new THREE.CubeGeometry(5, 5, 100), new THREE.MeshLambertMaterial());
+    physicShower.position.y = -10;
+    scene.add(physicShower);
+
+    shape = new CANNON.Box(new CANNON.Vec3(2.5,2.5,50));
+	physicShowerBody = new CANNON.Body({ mass: 0 });
+	physicShowerBody.addShape(shape);
+	world.add(physicShowerBody);
+	physicShowerBody.position.y = -10;
+
+
+	//init the shader
+	var vertexShader	= document.getElementById('vertexShader');
+	var fragmentShader	= document.getElementById('fragmentShader');
+	var myShaderMaterial= new THREE.ShaderMaterial( {
+	    uniforms        : uniforms,
+	    vertexShader    : vertexShader.textContent,
+	    fragmentShader  : fragmentShader.textContent
+    });
+    
+
+	// update the time
+	var clock	= new THREE.Clock();
+	onRenderFcts.push(function(){
+		var delta	= clock.getDelta();
+		myShaderMaterial.uniforms.time.value += delta * 5;
+	})
+
+	loader = new THREE.ColladaLoader();
+	loader.options.convertUpAxis = true;
+
+	var GLOBAL = {awp : new Array(), body : new Array()}
+
+	for (var i = 0; i < 10; i++) {
+		(function(i) {
+			GLOBAL.awp[i] = new THREE.Object3D();
+
+			//load the awp model
+		    loader.load('textures/awp.dae',function colladaReady( collada ){
+		        	GLOBAL.awp[i] = collada.scene;
+		        	GLOBAL.awp[i].traverse( function ( child ) {
+					child.material = myShaderMaterial;
+					if (child instanceof THREE.Mesh) 
+					{
+						child.castShadow = true;
+					}
+
+				});
+		        scene.add(GLOBAL.awp[i]);
+		    });
+
+		    //create the body of the awp
+		    shape = new CANNON.Box(new CANNON.Vec3(1,4.5,27));
+		    GLOBAL.body[i] = new CANNON.Body({ mass: 100 });
+		    GLOBAL.body[i].addShape(shape);
+		    world.add(GLOBAL.body[i]);
+
+		    GLOBAL.body[i].quaternion.y = Math.random() * 720;
+			GLOBAL.body[i].quaternion.z = Math.random() * 720;
+			GLOBAL.body[i].quaternion.x = Math.random() * 720;
+			GLOBAL.body[i].quaternion.w = Math.random() * 720;
+			GLOBAL.body[i].position.y = Math.random() * 300 + 65;
+			GLOBAL.body[i].position.x = Math.random() * 100 - Math.random() * 100;
+		})(i);
+	};
+
+    onRenderFcts.push(function(){
+    	for (var i = 0; i < 10; i++) {	
+    		//respawn awp if they fall too down
+	    	if (GLOBAL.body[i].position.y < -90) {
+	    		stattrakValue += 1;
+	    		world.remove(GLOBAL.body[i]);
+	    		shape = new CANNON.Box(new CANNON.Vec3(1,4.5,27));
+		    	GLOBAL.body[i] = new CANNON.Body({ mass: 100 });
+		    	GLOBAL.body[i].addShape(shape);
+		    	world.add(GLOBAL.body[i]);
+	    		GLOBAL.body[i].position.y = 120;
+	    		GLOBAL.body[i].position.z = 0;
+	    		GLOBAL.body[i].position.x = Math.random() * 100 - Math.random() * 100;
+	    		GLOBAL.body[i].quaternion.y = Math.random() * 720;
+				GLOBAL.body[i].quaternion.z = Math.random() * 720;
+				GLOBAL.body[i].quaternion.x = Math.random() * 720;
+				GLOBAL.body[i].quaternion.w = Math.random() * 720;
+				if(stattrakValue <= 10000){
+					dynamicTexture.clear('black');
+					dynamicTexture.drawText(stattrakValue, undefined, 256, 'orange');
+				}
+				else{
+					dynamicTexture.clear('black');
+					dynamicTexture.drawText('Thanks <3', undefined, 256, 'orange');	
+				}
+	    	};
+	    }
+	})
+
+	////////////////////////////////
+	// DynamicTexture
+	////////////////////////////////
+
+	//Dynamic Texture
+
+	var dynamicTexture  = new THREEx.DynamicTexture(512,512);
+	dynamicTexture.context.font	= "bolder 90px Verdana";
+
+	var geometry    = new THREE.CubeGeometry( 5, 5, 0.5);
+	var material    = new THREE.MeshBasicMaterial({
+	    map : dynamicTexture.texture
+	})
+	var stattrak    = new THREE.Mesh( geometry, material );
+	scene.add( stattrak );
+	
+	stattrak.position.x = 0;
+	stattrak.position.y = -10;
+	stattrak.position.z = 50.25;
+	
+	// use .drawImage on the texture
+	/*var url		= "textures/texture_1.png";
+	var image	= document.createElement('img');
+	image.src	= url;
+	image.addEventListener('load', function(){
+		dynamicTexture.drawImage(image, 0, 0)
+	})*/
+	dynamicTexture.clear('black');
+	dynamicTexture.drawText(stattrakValue, undefined, 256, 'orange');
+	
+
+
+	//////////////////////////////////////////////////////////////////////////////////
+	//		render the whole thing on the page
+	//////////////////////////////////////////////////////////////////////////////////
+
+	// handle window resize
+
+	window.addEventListener('resize', function(){
+		renderer.setSize( window.innerWidth, window.innerHeight )
+		camera.aspect	= window.innerWidth / window.innerHeight
+		camera.updateProjectionMatrix()		
+	}, false)
+
+	// render the scene
+	onRenderFcts.push(function(){
+		renderer.render( scene, camera );
+		world.step(1/60);
+		for (var i = 0; i < 10; i++) {	
+			//weld the awp on their respective body
+			GLOBAL.awp[i].quaternion._y = GLOBAL.body[i].quaternion.y + 0.0175;
+			GLOBAL.awp[i].quaternion._z = GLOBAL.body[i].quaternion.z;
+			GLOBAL.awp[i].quaternion._x = GLOBAL.body[i].quaternion.x;
+			GLOBAL.awp[i].quaternion._w = GLOBAL.body[i].quaternion.w;
+			GLOBAL.awp[i].position.y = GLOBAL.body[i].position.y;
+			GLOBAL.awp[i].position.x = GLOBAL.body[i].position.x;
+			GLOBAL.awp[i].position.z = GLOBAL.body[i].position.z + 1.5;
+			physicShower.position = physicShowerBody.position;
+			physicShower.quaternion._x = physicShowerBody.quaternion.x;
+			physicShower.quaternion._y = physicShowerBody.quaternion.y;
+			physicShower.quaternion._z = physicShowerBody.quaternion.z;
+		}
+	})
+
+	
+
+	// run the rendering loop
+	var lastTimeMsec= null;
+	requestAnimationFrame(function animate(nowMsec){
+
+		// keep looping
+		requestAnimationFrame( animate );
+		// measure time
+		lastTimeMsec	= lastTimeMsec || nowMsec-1000/60;
+		var deltaMsec	= Math.min(200, nowMsec - lastTimeMsec);
+		lastTimeMsec	= nowMsec;
+		// call each update function
+		onRenderFcts.forEach(function(onRenderFct){
+			onRenderFct(deltaMsec/1000, nowMsec/1000);
+		})
+	})
+</script></body>
